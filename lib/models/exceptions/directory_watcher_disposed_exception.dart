@@ -1,0 +1,3 @@
+class DirectoryWatcherDisposedException {
+  DirectoryWatcherDisposedException();
+}
