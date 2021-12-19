@@ -3,11 +3,13 @@ import 'package:flutter_hooks/flutter_hooks.dart';
 
 T useDisposable<T>({
   required T Function() factory,
-  required void Function(T disposable) disposer
+  required void Function(T disposable) disposer,
+  List<Object>? keys
 }) {
   return use(_DisposableHook(
     factory: factory,
-    disposer: disposer
+    disposer: disposer,
+    keys: keys
   ));
 }
 
@@ -17,8 +19,9 @@ class _DisposableHook<T> extends Hook<T> {
 
   const _DisposableHook({
     required this.factory,
-    required this.disposer
-  });
+    required this.disposer,
+    List<Object>? keys
+  }) : super(keys: keys);
 
   @override
   _DisposableHookState<T> createState() => _DisposableHookState();

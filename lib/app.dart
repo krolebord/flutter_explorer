@@ -17,11 +17,18 @@ class App extends StatelessWidget {
           appBar: AppBar(
             title: const Text('Home'),
           ),
-          body: Row(
-            children: const [
-              Expanded(child: FileHierarchy()),
-              Expanded(child: FileHierarchy())
-            ],
+          body: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8.0),
+            child: Row(
+              children: const [
+                Expanded(child: FileHierarchy()),
+                VerticalDivider(
+                  indent: 24,
+                  endIndent: 24,
+                ),
+                Expanded(child: FileHierarchy())
+              ],
+            ),
           ),
         ),
       ),

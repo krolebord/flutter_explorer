@@ -5,9 +5,10 @@ import 'package:path/path.dart';
 extension FileSystemEntityExtensions on FileSystemEntity {
   Node<FileSystemEntity> toNode() {
     return Node<FileSystemEntity>(
-        key: path,
-        label: basename(path),
-        data: this
+      key: path,
+      label: basename(path),
+      data: this,
+      parent: this is Directory
     );
   }
 }

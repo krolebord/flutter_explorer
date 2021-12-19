@@ -1,31 +1,133 @@
+import 'dart:async';
 import 'dart:io';
+import 'dart:math';
 import 'package:bloc/bloc.dart';
 import 'package:flutter_explorer/cubits/directory/directory_state.dart';
+import 'package:flutter_explorer/helpers/create_file_entity.dart';
+import 'package:flutter_explorer/helpers/file_node_compare.dart';
 import 'package:flutter_explorer/helpers/file_system_entity_extensions.dart';
+import 'package:flutter_explorer/helpers/get_service.dart';
+import 'package:flutter_explorer/helpers/treeview_controller_extensions.dart';
+import 'package:flutter_explorer/models/exceptions/filesystem_parsed_error.dart';
+import 'package:flutter_explorer/services/filesystem_service.dart';
 import 'package:flutter_treeview/flutter_treeview.dart';
-import 'package:rxdart/rxdart.dart';
-import 'package:watcher/watcher.dart';
 import 'package:path/path.dart' as p;
 
 class DirectoryCubit extends Cubit<DirectoryState> {
+  final FileSystemService _filesService = getService<FileSystemService>();
+
   final Directory directory;
-  final void Function(String path, DirectoryCubit cubit)? onCanceled;
 
   late TreeViewController _controller;
 
+  StreamSubscription? _watchSubscription;
+
   DirectoryCubit({
-    required String path,
-    this.onCanceled
+    required String path
   }) :
         directory = Directory(path),
         super(const DirectoryState.initial()) {
     _init(path);
   }
 
-  @override
-  Stream<DirectoryState> get stream {
-    return super.stream
-      .doOnCancel(() => onCanceled?.call(directory.path, this));
+  FutureOr<void> collapse(String path) {
+    var node = _controller.getNode(path);
+
+    if (node == null || node.data is! Directory) {
+      return Future.value();
+    }
+
+    node = node.copyWith(
+      children: [],
+      expanded: false
+    );
+
+    _updateController(_controller.withUpdateNode(node.key, node));
+  }
+
+  FutureOr<void> expand(String path) async {
+    var node = _controller.getNode(path);
+
+    if (node == null || node.data is! Directory) {
+      return;
+    }
+
+    final directory  = node.data as Directory;
+
+    List<FileSystemEntity>? files;
+
+    final success = await _handleFileSystemFuture(() async {
+      files = await directory.list(recursive: false, followLinks: false).toList();
+    });
+
+    if (!success) {
+      return;
+    }
+
+    node = node.copyWith(
+      expanded: true,
+      children: files!.map((file) => file.toNode()).toList()
+    );
+
+    sortNode(node);
+
+    _updateController(_controller.withUpdateNode(node.key, node));
+  }
+
+  FutureOr<void> changeExpansion(String path) async {
+    final node = _controller.getNode(path);
+
+    if (node == null) {
+      return;
+    }
+
+    if (node.expanded) {
+      await collapse(path);
+      return;
+    }
+    else if (!node.expanded) {
+      await expand(path);
+      return;
+    }
+  }
+
+  FutureOr<void> select(String path) {
+    _updateController(_controller.copyWith(
+      selectedKey: path
+    ));
+  }
+
+  FutureOr<void> move(FileSystemEntity target, FileSystemEntity destinationDirectory) async {
+    await _handleFileEntityFuture(
+      target,
+      (target) => _filesService.move(target, destinationDirectory)
+    );
+  }
+
+  FutureOr<void> copy(FileSystemEntity target, FileSystemEntity destinationDirectory) async {
+    await _handleFileSystemFuture(() => _filesService.copy(target, destinationDirectory));
+  }
+
+  FutureOr<void> delete(FileSystemEntity target) async {
+    await _handleFileEntityFuture(
+      target,
+      (target) => _filesService.delete(target)
+    );
+  }
+
+  FutureOr<void> rename(FileSystemEntity entity, String newName) async {
+    await _handleFileEntityFuture(
+      entity,
+      (entity) => _filesService.rename(entity, newName)
+    );
+  }
+
+  FutureOr<void> createDirectory(Directory directory, String newDirectoryName) async {
+    await _handleFileSystemFuture(() => _filesService.createDirectory(directory, newDirectoryName));
+  }
+
+  FutureOr<void> createFile(Directory directory, String newFileName) async {
+    await _handleFileSystemFuture(() => _filesService.createFile(directory, newFileName));
   }
 
   Future<void> _init(String path) async {
@@ -36,91 +138,102 @@ class DirectoryCubit extends Cubit<DirectoryState> {
 
     emit(DirectoryState.loading(path));
 
-    try {
-      final files = await directory.list(recursive: true, followLinks: false).toList();
-      _updateController(_buildController(files));
-    }
-    on FileSystemException catch(exception) {
-      switch (exception.osError?.errorCode) {
-        case 1:
-          emit(const DirectoryState.error("Operation not permitted. Full access to the disk required"));
-          return;
-        default:
-          emit(const DirectoryState.error("Unexpected error occurred while listing directory"));
-          return;
-      }
-    }
+    _updateController(TreeViewController(
+      children: [directory.toNode()]
+    ));
 
     emit(DirectoryState.opened(directory, _controller));
 
-    final watcher = DirectoryWatcher(path, pollingDelay: const Duration(seconds: 5));
-
-    watcher.events.listen(_handleFileSystemChange);
-
-    await watcher.ready;
-  }
-
-  void _handleFileSystemChange(WatchEvent event) async {
-    switch(event.type) {
-      case ChangeType.ADD:
-        _onAddFile(event.path);
-        break;
-      case ChangeType.REMOVE:
-        _onRemoveFile(event.path);
-        break;
-      case ChangeType.MODIFY:
-        _onModifyFile(event.path);
-        break;
-    }
-  }
-
-  void _onAddFile(String path) async {
-    FileSystemEntity entity = File(path);
-
-    if (!await entity.exists()) {
-      return;
-    }
-
-    final parentPath = p.dirname(path);
-
-    if (parentPath == directory.path) {
-      _controller.children.add(entity.toNode());
-      _sortNodes(_controller.children);
-      _updateController(TreeViewController(children: _controller.children));
-      return;
-    }
-
-    if(!p.isWithin(directory.path, parentPath)) {
-      return;
-    }
-
-    var parent = _controller.getNode(parentPath);
-
-    if (parent == null) {
-      parent = Directory(parentPath).toNode();
-      _updateController(_controller.withAddNode(parentPath, newNode))
-      _updateController(_controller.withUpdateNode(entity.path, entity.toNode()));
-
-      _onAddFile(parentPath);
-    }
-
-    final updatedController = _controller.withAddNode(
-      p.dirname(path),
-      entity.toNode()
+    directory.watch(recursive: true).listen(
+      _handleFileSystemChange,
+      cancelOnError: false
     );
-
-    parent.children.sort(_nodeCompare);
-
-    _updateController(updatedController);
   }
 
-  void _onRemoveFile(String path) {
-    print(path);
+  Future<bool> _handleFileEntityFuture(
+    FileSystemEntity target,
+    Future Function(FileSystemEntity entity) future
+  ) async {
+    if(target.path == directory.path) {
+      _emitRootFolderError();
+      return false;
+    }
+
+    return await _handleFileSystemFuture(() => future(target));
+  }
+
+  Future<bool> _handleFileSystemFuture(Future Function() future) async {
+    try {
+      await future();
+      return true;
+    }
+    on FileSystemParsedError catch (e) {
+      _emitTempError(e.message);
+      return false;
+    }
+    on FileSystemException catch (e) {
+      switch (e.osError?.errorCode) {
+        case 1:
+          _emitTempError("Operation not permitted. Full access to the disk required");
+          return false;
+        default:
+          _emitTempError("Error #${e.osError?.errorCode ?? -1}: ${e.osError?.message ?? e.message}");
+          return false;
+      }
+    }
+  }
+
+  FutureOr<void> _handleFileSystemChange(FileSystemEvent event) async {
+    if (event is FileSystemDeleteEvent) {
+      _onRemoveEntity(event.path);
+      return;
+    }
+
+    if (event is FileSystemCreateEvent) {
+      final entity = await createFileEntity(event.path);
+      if (entity == null) {
+        return;
+      }
+      _onAddEntity(entity);
+    }
+    else if (event is FileSystemMoveEvent) {
+      if (event.destination == null) {
+        return;
+      }
+
+      _onMoveEntity(event.path, event.destination!);
+    }
+    else if (event is FileSystemModifyEvent) {
+      return _onModifyEntity(event.path);
+    }
+  }
+
+  FutureOr<void> _onAddEntity(FileSystemEntity entity) {
+    _updateController(_controller.withAddFileNode(entity));
+  }
+
+  FutureOr<void> _onMoveEntity(String from, String to) async {
+    var controller = _controller.withDeleteNode(from);
+
+    final parentPath = p.dirname(to);
+    final parent = _controller.getNode(parentPath);
+    if (parent != null) {
+      final entity = await createFileEntity(to);
+      if (entity == null) {
+        return;
+      }
+      controller = controller.withAddFileNode(entity);
+    }
+
+    _updateController(controller);
+  }
+
+  FutureOr<void> _onRemoveEntity(String path) {
     _updateController(_controller.withDeleteNode(path));
   }
 
-  void _onModifyFile(String path) {
-    print(path);
+  FutureOr<void> _onModifyEntity(String path) {
+
   }
 
   void _updateController(TreeViewController controller) {
@@ -128,48 +241,19 @@ class DirectoryCubit extends Cubit<DirectoryState> {
     emit(DirectoryState.opened(directory, controller));
   }
 
-  TreeViewController _buildController(List<FileSystemEntity> files) {
-    var controller = TreeViewController(
-      children: files
-        .where((element) => p.dirname(element.path) == directory.path)
-        .map((e) => e.toNode())
-        .toList()
-    );
-
-    for(var file in files) {
-      if(p.dirname(file.path) == directory.path) {
-        continue;
-      }
-
-      controller = controller.withAddNode(p.dirname(file.path), file.toNode());
-    }
-
-    _sortNodes(controller.children);
-
-    return controller;
+  void _emitRootFolderError() {
+    _emitTempError("Cannot perform any actions with root folder");
   }
 
-  static void _sortNodes(List<Node<dynamic>> nodes) {
-    if(nodes.isEmpty) {
-      return;
-    }
-
-    nodes.sort(_nodeCompare);
-
-    for(var node in nodes) {
-      _sortNodes(node.children);
-    }
+  void _emitTempError(String message) {
+    final currState = state;
+    emit(DirectoryState.error(message));
+    emit(currState);
   }
 
-  static int _nodeCompare(Node<dynamic> a, Node<dynamic> b) {
-    if (a.data is Directory && b.data is File) {
-      return -1;
-    }
-
-    if (a.data is File && b.data is Directory) {
-      return 1;
-    }
-
-    return (a.data as FileSystemEntity).path.compareTo((b.data as FileSystemEntity).path);
+  @override
+  Future<void> close() {
+    _watchSubscription?.cancel();
+    return super.close();
   }
 }
