@@ -1,10 +1,11 @@
 import 'dart:async';
 import 'dart:io';
+import 'package:flutter_explorer/widgets/text_editor/text_editor.dart';
 import 'package:path/path.dart' as path;
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bloc/flutter_bloc.dart';
-import 'package:flutter_explorer/actions/file_entity_actions/file_entity_action.dart';
+import 'package:flutter_explorer/actions/file_entity_action.dart';
 import 'package:flutter_explorer/cubits/directory/directory_cubit.dart';
 import 'package:flutter_explorer/cubits/directory/directory_state.dart';
 import 'package:flutter_explorer/cubits/selection/selection_state.dart';
@@ -39,7 +40,7 @@ class SelectionCubit extends Cubit<SelectionState> {
 
   late final _rename = FileEntityAction(
     label: 'Rename',
-    icon: Icons.edit,
+    icon: Icons.drive_file_rename_outline,
     action: (context, entity) async {
       final newName = await showFileNameDialog(context: context);
 
@@ -139,6 +140,47 @@ class SelectionCubit extends Cubit<SelectionState> {
     },
   );
 
+  late final _find = FileEntityAction(
+    label: 'Find',
+    icon: Icons.search,
+    action: (context, entity) async {
+      if(entity is! Directory) {
+        return;
+      }
+
+
+    }
+  );
+
+  late final _edit = FileEntityAction(
+    label: 'Edit',
+    icon: Icons.edit,
+    action: (context, entity) async {
+      if (entity is! File || !await entity.exists()) {
+        return;
+      }
+
+      final content = await entity.readAsString();
+
+      final newContent = await showDialog(
+        barrierDismissible: false,
+        context: context,
+        builder: (context) => Dialog(
+          child: TextEditor(
+            file: entity,
+            content: content
+          ),
+        )
+      );
+
+      if(newContent == null) {
+        return;
+      }
+
+      context.read<DirectoryCubit>().write(entity, newContent);
+    },
+  );
+
   late final List<FileEntityAction> _defaultActions = [
     _delete,
     _rename,
@@ -152,7 +194,7 @@ class SelectionCubit extends Cubit<SelectionState> {
   ];
 
   late final List<FileEntityAction> _fileActions = [
-
+    _edit
   ];
 
   SelectionCubit(this.directoryCubit) : super(const SelectionState.none()) {

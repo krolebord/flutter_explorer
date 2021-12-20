@@ -132,4 +132,8 @@ class FileSystemService {
 
     await File(newPath).create();
   }
+
+  Future<void> write(File file, String content) async {
+    await file.writeAsString(content);
+  }
 }

@@ -1,0 +1,4 @@
+enum HierarchyName {
+  left,
+  right
+}

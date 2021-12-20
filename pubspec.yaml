@@ -33,6 +33,10 @@ dependencies:
   file_selector: ^0.8.2+1
   file_selector_windows: ^0.0.2+1
 
+  menubar:
+    git:
+      url: git://github.com/google/flutter-desktop-embedding.git
+      path: plugins/menubar
   flutter_treeview:
     path: treeview/
 

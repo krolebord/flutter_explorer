@@ -247,7 +247,7 @@ class _TreeNodeState extends State<TreeNode>
       }
     }
     return Container(
-      color: isSelected ? _theme.colorScheme.primary : null,
+      color: isSelected ? Colors.blue.withOpacity(0.7) : null,
       child: Row(
         mainAxisAlignment: MainAxisAlignment.start,
         crossAxisAlignment: CrossAxisAlignment.center,

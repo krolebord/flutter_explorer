@@ -1,5 +1,5 @@
 import 'dart:io';
-import 'package:flutter_explorer/actions/file_entity_actions/file_entity_action.dart';
+import 'package:flutter_explorer/actions/file_entity_action.dart';
 import 'package:freezed_annotation/freezed_annotation.dart';
 
 part 'selection_state.freezed.dart';

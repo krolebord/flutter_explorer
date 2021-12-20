@@ -122,6 +122,10 @@ class DirectoryCubit extends Cubit<DirectoryState> {
     );
   }
 
+  FutureOr<void> write(File file, String content) async {
+    await _handleFileSystemFuture(() => _filesService.write(file, content));
+  }
+
   FutureOr<void> createDirectory(Directory directory, String newDirectoryName) async {
     await _handleFileSystemFuture(() => _filesService.createDirectory(directory, newDirectoryName));
   }
